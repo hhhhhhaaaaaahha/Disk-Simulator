@@ -700,9 +700,9 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
     unsigned long checkpoint_count = 0UL;
     unsigned long checkpoint_accumulate = 0UL;
 
-    hybrid_block_remain = report->max_block_num;
+    hybrid_block_remain = report->max_block_num; // max_block_num 為硬碟空間轉換為 block 的數量
     hybrid_used_zone_count = 0UL;
-    hybrid_zone = malloc((total_bands) * sizeof(struct HYBRID_ZONE));
+    hybrid_zone = malloc((total_bands) * sizeof(struct HYBRID_ZONE)); // total_bands == total_bytes / BAND_SIZE (256 個 tracks)
 
     for (unsigned long zoneNum = 0UL; zoneNum < total_bands; zoneNum++)
     {
