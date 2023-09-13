@@ -704,6 +704,7 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
     hybrid_used_zone_count = 0UL;
     hybrid_zone = malloc((total_bands) * sizeof(struct HYBRID_ZONE)); // total_bands == total_bytes / BAND_SIZE (256 個 tracks)
 
+    int line_cnt = 0;
     for (unsigned long zoneNum = 0UL; zoneNum < total_bands; zoneNum++)
     {
         hybrid_zone[zoneNum].isOffline = true;
@@ -713,13 +714,17 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
         hybrid_zone[zoneNum].logical_disk_LBA = zoneNum * 256UL;
     }
 
-    hybrid_journaling_percent = 10UL; // 10%
-    hybrid_journaling_zone_limit = total_bands * hybrid_journaling_percent / 100UL;
-    hybrid_journaling_zone_count = 0UL;
-    hybrid_journaling_hotness_bound = (hybrid_journaling_zone_limit / 2UL) * 256UL;
+    hybrid_journaling_percent = 10UL;                                               // 10%
+    hybrid_journaling_zone_limit = total_bands * hybrid_journaling_percent / 100UL; // 總 bands 數量的 10%
 
+    // 以下這兩個變數比較重要
+    hybrid_journaling_zone_count = 0UL;                                             // 目前拿來當作 SMR 的 bands 數量
+    hybrid_journaling_hotness_bound = (hybrid_journaling_zone_limit / 2UL) * 256UL; // 分離 hot/cold data 的 initial value
+
+    // 這個不重要
     hybrid_hotness_bound = ((total_bands - hybrid_journaling_hotness_bound) / 2UL) * 256UL;
 
+    // fprintf(stderr, "Journaling Limit: %lu\n", hybrid_journaling_hotness_bound);
     fprintf(stderr, "Journaling Limit: %lu\n", hybrid_journaling_zone_limit);
 
     for (unsigned long zoneNum = 0UL; zoneNum < total_bands; zoneNum++)
@@ -740,11 +745,19 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
         }
         if ((val = sscanf(p, "%d,%lu,%llu,%lu\n", &c, &fid, &bytes, &num_bytes)) == 4)
         {
+            line_cnt++;
+            printf("line count: %d\n", line_cnt);
+            /*
+                c: operation type
+                fid: file id from fs
+                bytes: lba related
+                num_bytes: data size
+            */
             report->ins_count++;
 
-            lba = bytes / BLOCK_SIZE;
-            remainder = bytes % BLOCK_SIZE;
-            remain = (remainder == 0 ? 0 : BLOCK_SIZE - remainder);
+            lba = bytes / BLOCK_SIZE;                               // 算他在第幾個 track（block）
+            remainder = bytes % BLOCK_SIZE;                         // 算他在該 track 裡的第幾個 sector(?)
+            remain = (remainder == 0 ? 0 : BLOCK_SIZE - remainder); // 一個 track 寫入資料後剩下的空間大小
             n = 0;
             if (num_bytes == 0)
             {
@@ -752,7 +765,7 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
             }
             else if (remain < num_bytes)
             {
-                n = !!remain;
+                n = !!remain; // 把 n 設為 1
                 left = num_bytes - remain;
                 n += (left / BLOCK_SIZE) + !!(left % BLOCK_SIZE);
             }
@@ -771,6 +784,8 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
             case 2:
                 report->write_ins_count++;
                 int commit_mode;
+
+                // 從過去 1000 次 commit 的平均 data size 來決定 data hotness
                 if (commit_count == 1000UL)
                 {
                     hybrid_journaling_hotness_bound = commit_accumulate / 1000UL;
@@ -801,13 +816,16 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
                     bool found = false;
                     for (unsigned long check_update_zone = 0UL; check_update_zone < hybrid_used_zone_count; check_update_zone++)
                     {
-                        // hybrid_used_zone_count 不是 0 嗎 ==
+                        // 如果某個 zone 為使用中
                         if (!hybrid_zone[check_update_zone].isOffline && hybrid_zone[check_update_zone].isJournaling)
                         {
+                            // Iterate 這個 zone 中已寫入的 blocks
                             for (unsigned long check_update = 0UL; check_update < hybrid_zone[check_update_zone].write_head_pointer; check_update++)
                             {
+                                // 檢查 fid 與 lba 吻合的 block
                                 if (hybrid_zone[check_update_zone].blocks[check_update].fileID == fid && hybrid_zone[check_update_zone].blocks[check_update].original_lba == check_lba)
                                 {
+                                    // 加入 update list 中
                                     hybrid_journaling_update_list[hybrid_journaling_update_count] = check_lba;
                                     hybrid_journaling_update_count++;
                                     disk->d_op->write(disk, hybrid_zone[check_update_zone].logical_disk_LBA + check_update, 1, fid);
@@ -827,6 +845,8 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
                     }
                 }
 
+                // printf("%lu\n", hybrid_journaling_hotness_bound);
+
                 unsigned long lba_ptr = lba;
                 unsigned long n_ptr = n;
                 unsigned long update_start_ptr = 0;
@@ -835,11 +855,20 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
                 {
                     for (unsigned long check_free_zone = 0UL; check_free_zone < hybrid_used_zone_count; check_free_zone++)
                     {
-                        // 這邊甚至因為不會跑 for 迴圈的內容，造成 n_ptr 永遠大於 0，所以一直在跑無窮迴圈
+                        /* 因為 hybrid_used_zone_count 為 0，所以不會跑 for 迴圈的內容，造成 n_ptr 永遠大於 0，所以一直在跑無窮迴圈 */
+                        /*
+                            檢查：
+                            1. zone 為 online
+                            2. zone 為 journaling
+                            3. zone 還沒滿
+                            4. zone type 符合一開始檢查的類別（CMR/SMR）
+                        */
                         if (!hybrid_zone[check_free_zone].isOffline && hybrid_zone[check_free_zone].isJournaling && !hybrid_zone[check_free_zone].isFull && hybrid_zone[check_free_zone].zone_type == commit_mode)
                         {
                             unsigned long whp = hybrid_zone[check_free_zone].write_head_pointer;
                             unsigned long zone_n = 0;
+
+                            // 從 write head pointer 開始往後檢查
                             while (whp < HYBRID_ZONE_TRACK_COUNT && n_ptr > 0UL)
                             {
                                 if (hybrid_zone[check_free_zone].blocks[whp].isSEALED)
