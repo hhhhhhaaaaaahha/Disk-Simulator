@@ -5,3 +5,5 @@
 
 #include "Hybrid.h"
 #include "chs.h"
+
+int do_checkpoint() {}

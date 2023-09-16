@@ -13,8 +13,8 @@ unsigned long hybrid_journaling_percent;
 unsigned long hybrid_journaling_zone_limit;
 unsigned long hybrid_journaling_zone_count;
 unsigned long hybrid_journaling_block_remain;
-//unsigned long hybrid_journaling_cmr_count;
-//unsigned long hybrid_journaling_smr_count;
+// unsigned long hybrid_journaling_cmr_count;
+// unsigned long hybrid_journaling_smr_count;
 unsigned long hybrid_journaling_hotness_bound;
 
 /* Data Storage */
@@ -25,13 +25,15 @@ unsigned long hybrid_cmr_count;
 unsigned long hybrid_smr_count;
 unsigned long hybrid_hotness_bound;
 
-struct HYBRID_BLOCK {
+struct HYBRID_BLOCK
+{
     bool isSEALED;
     unsigned long fileID;
     unsigned long original_lba;
 };
 
-struct HYBRID_ZONE {
+struct HYBRID_ZONE
+{
     bool isOffline;
     bool isFull;
     bool isJournaling;
@@ -39,7 +41,8 @@ struct HYBRID_ZONE {
     unsigned long logical_disk_LBA;
     unsigned long write_head_pointer;
     struct HYBRID_BLOCK blocks[HYBRID_ZONE_TRACK_COUNT];
-    
 };
 
 struct HYBRID_ZONE *hybrid_zone;
+
+int do_checkpoint();
