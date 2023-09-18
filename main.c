@@ -680,7 +680,7 @@ void parsing_postmark_cache(struct disk *cache, struct disk *disk, FILE *stream)
     free(diskAddress);
 }
 
-void parsing_hybrid_csv(struct disk *disk, FILE *stream)
+void hybrid_parsing_csv(struct disk *disk, FILE *stream)
 {
     unsigned long lba, n, val;
     char *line = NULL;
@@ -694,11 +694,12 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
     percent = num_traces / 100UL;
     ten_percent = num_traces / 10UL;
 
-    unsigned long commit_count = 0UL;
-    unsigned long commit_accumulate = 0UL;
-
-    unsigned long checkpoint_count = 0UL;
-    unsigned long checkpoint_accumulate = 0UL;
+    /* init journaling info */
+    size_record = malloc(sizeof(int) * 1000UL);
+    record_pointer = 0UL;
+    size_summation = 0UL;
+    commit_count = 0UL;
+    commit_ammount_not_enough = true;
 
     hybrid_block_remain = report->max_block_num; // max_block_num 為硬碟空間轉換為 block 的數量
     hybrid_used_zone_count = 0UL;
@@ -713,20 +714,17 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
         hybrid_zone[zoneNum].isJournaling = false;
         hybrid_zone[zoneNum].logical_disk_LBA = zoneNum * 256UL;
     }
-
-    hybrid_journaling_percent = 10UL;                                               // 10%
-    hybrid_journaling_zone_limit = total_bands * hybrid_journaling_percent / 100UL; // 總 bands 數量的 10%
+    hybrid_journaling_zone_limit = total_bands * JOURNALING_PERCENTAGE / 100UL; // 總 bands 數量的 10%
 
     // 以下這兩個變數比較重要
-    hybrid_journaling_zone_count = 0UL;                                             // 目前拿來當作 SMR 的 bands 數量
+    hybrid_journaling_zone_count = 0UL;                                             // 目前 journaling zone 的數量
     hybrid_journaling_hotness_bound = (hybrid_journaling_zone_limit / 2UL) * 256UL; // 分離 hot/cold data 的 initial value
+    printf("hybrid_journaling_hotness_bound: %lu\n", hybrid_journaling_hotness_bound);
 
     // 這個不重要
     hybrid_hotness_bound = ((total_bands - hybrid_journaling_hotness_bound) / 2UL) * 256UL;
 
-    // fprintf(stderr, "Journaling Limit: %lu\n", hybrid_journaling_hotness_bound);
     fprintf(stderr, "Journaling Limit: %lu\n", hybrid_journaling_zone_limit);
-
     for (unsigned long zoneNum = 0UL; zoneNum < total_bands; zoneNum++)
     {
         fprintf(stderr, "Hybrid Zone %lu, LBA: %lu\n", zoneNum, hybrid_zone[zoneNum].logical_disk_LBA);
@@ -743,16 +741,17 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
         {
             continue;
         }
+
+        /*
+            c: operation type
+            fid: file id from fs
+            bytes: lba related
+            num_bytes: data size
+        */
         if ((val = sscanf(p, "%d,%lu,%llu,%lu\n", &c, &fid, &bytes, &num_bytes)) == 4)
         {
             line_cnt++;
             printf("line count: %d\n", line_cnt);
-            /*
-                c: operation type
-                fid: file id from fs
-                bytes: lba related
-                num_bytes: data size
-            */
             report->ins_count++;
 
             lba = bytes / BLOCK_SIZE;                               // 算他在第幾個 track（block）
@@ -783,29 +782,7 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
 
             case 2:
                 report->write_ins_count++;
-                int commit_mode;
-
-                // 從過去 1000 次 commit 的平均 data size 來決定 data hotness
-                if (commit_count == 1000UL)
-                {
-                    hybrid_journaling_hotness_bound = commit_accumulate / 1000UL;
-                    commit_count = 0UL;
-                    commit_accumulate = 0UL;
-                }
-                else
-                {
-                    commit_count++;
-                    commit_accumulate += n;
-                }
-
-                if (n < hybrid_journaling_hotness_bound)
-                {
-                    commit_mode = 0; // CMR
-                }
-                else
-                {
-                    commit_mode = 1; // SMR
-                }
+                int commit_mode = define_commit_type(n);
 
                 // Commit
                 // Check and write update data
@@ -844,8 +821,6 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
                         break;
                     }
                 }
-
-                // printf("%lu\n", hybrid_journaling_hotness_bound);
 
                 unsigned long lba_ptr = lba;
                 unsigned long n_ptr = n;
@@ -994,7 +969,7 @@ void parsing_hybrid_csv(struct disk *disk, FILE *stream)
 }
 
 /*
-void parsing_hybrid_csv(struct disk *disk, FILE *stream) {
+void hybrid_parsing_csv(struct disk *disk, FILE *stream) {
     unsigned long lba, n, val;
     char *line = NULL;
     ssize_t nread;
@@ -2350,7 +2325,7 @@ void hybrid_start_parsing(struct disk *disk, char *file_name)
     if (is_csv_flag)
     {
         // parsing_csv(disk, stream);
-        parsing_hybrid_csv(disk, stream);
+        hybrid_parsing_csv(disk, stream);
         printf("Parsing hybrid csv\n");
     }
     else

@@ -7,6 +7,8 @@
 #define HYBRID_ZONE_TRACK_COUNT 256UL
 #define HYBRID_ZONE_CMR_TRACK_COUNT 170UL
 #define HYBRID_DENSITY_GAIN 1.5
+#define JOURNALING_PREDICT_REQ_NUM 1000UL
+#define JOURNALING_PERCENTAGE 10UL
 
 /* Journaling */
 unsigned long hybrid_journaling_percent;
@@ -24,6 +26,13 @@ unsigned long hybrid_block_remain;
 unsigned long hybrid_cmr_count;
 unsigned long hybrid_smr_count;
 unsigned long hybrid_hotness_bound;
+
+/* Journaling */
+unsigned long *size_record;
+unsigned long record_pointer;
+unsigned long size_summation;
+unsigned long commit_count;
+bool commit_ammount_not_enough;
 
 struct HYBRID_BLOCK
 {
@@ -45,4 +54,5 @@ struct HYBRID_ZONE
 
 struct HYBRID_ZONE *hybrid_zone;
 
+int define_commit_type(unsigned long blocks);
 int do_checkpoint();
