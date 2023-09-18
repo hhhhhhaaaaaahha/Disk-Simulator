@@ -791,9 +791,10 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
                 for (unsigned long check_lba = lba; check_lba < lba + n; check_lba++)
                 {
                     bool found = false;
+                    /* 在已使用的 journaling zone 中檢查是否有要 update 的內容 */
                     for (unsigned long check_update_zone = 0UL; check_update_zone < hybrid_used_zone_count; check_update_zone++)
                     {
-                        // 如果某個 zone 為使用中
+                        // 如果某個 zone 為使用中且被用於 journaling
                         if (!hybrid_zone[check_update_zone].isOffline && hybrid_zone[check_update_zone].isJournaling)
                         {
                             // Iterate 這個 zone 中已寫入的 blocks
@@ -937,6 +938,7 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
                     }
                 }
                 // disk->d_op->write(disk, lba, n, fid);
+                free(hybrid_journaling_update_list);
                 break;
 
             case 3:
@@ -951,6 +953,8 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
         }
         else
         {
+            printf("%d,%lu,%llu,%lu\n", c, fid, bytes, num_bytes);
+            fprintf(stderr, "val = %lu\n", val);
             fprintf(stderr, "ERROR: parsing instructions failed. Unrecongnized format.\n");
             exit(EXIT_FAILURE);
         }
