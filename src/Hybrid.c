@@ -7,7 +7,7 @@
 #include "chs.h"
 
 int do_checkpoint() { return 0; }
-int define_commit_type(unsigned long blocks)
+int determine_commit_type(unsigned long blocks)
 {
     if (commit_ammount_not_enough)
     {

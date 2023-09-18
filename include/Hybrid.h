@@ -54,5 +54,5 @@ struct HYBRID_ZONE
 
 struct HYBRID_ZONE *hybrid_zone;
 
-int define_commit_type(unsigned long blocks);
+int determine_commit_type(unsigned long blocks);
 int do_checkpoint();

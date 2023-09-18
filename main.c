@@ -782,7 +782,7 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
 
             case 2:
                 report->write_ins_count++;
-                int commit_mode = define_commit_type(n);
+                int commit_mode = determine_commit_type(n);
 
                 // Commit
                 // Check and write update data
