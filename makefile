@@ -23,7 +23,7 @@ native_b: $(OBJS) dirs
 fluid_smr: $(OBJS) dirs
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFLUIDSMR main.c -o bin/fluid_smr $(OBJS)
 
-hybrid: $(OBJS) dirs
+hybrid: clean $(OBJS) dirs
 	$(CC) $(CFLAGS) $(LDFLAGS) -DHYBRID main.c -o bin/hybrid $(OBJS)
 
 #cmr_cache: $(OBJS) dirs
