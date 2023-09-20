@@ -1,6 +1,6 @@
 CC=	gcc
 CXX=g++
-OBJS= src/lba.c src/pba.c src/batch.c src/chs.c src/record_op.c src/rw.c src/band.c src/FluidSMR.c src/cache.c src/Hybrid.c
+OBJS= src/lba.c src/pba.c src/batch.c src/chs.c src/record_op.c src/rw.c src/band.c src/FluidSMR.c src/cache.c src/Hybrid.c src/output.c
 
 CPPFLAGS=-std=c++11 -Wfatal-errors -Wall
 CFLAGS=-Wfatal-errors -Wall -g
