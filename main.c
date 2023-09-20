@@ -13,6 +13,7 @@
 #include "./include/journaling.h"
 #include "./include/FluidSMR.h"
 #include "./include/Hybrid.h"
+#include "./include/output.h"
 
 bool is_csv_flag = false;
 op_mode_t recording_mode = normal_op_mode;
@@ -687,12 +688,10 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
     ssize_t nread;
     size_t len;
 
-    unsigned long fid, remain, remainder, num_bytes, left, num_traces, percent, ten_percent;
-    int c;
+    unsigned long num_traces = 4500000UL;
     struct report *report = &disk->report;
-    num_traces = 4500000UL;
-    percent = num_traces / 100UL;
-    ten_percent = num_traces / 10UL;
+    // unsigned long percent = num_traces / 100UL;
+    // unsigned long ten_percent = num_traces / 10UL;
 
     /* init journaling info */
     size_record = malloc(sizeof(int) * 1000UL);
@@ -701,7 +700,6 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
     commit_count = 0UL;
     commit_ammount_not_enough = true;
 
-    hybrid_block_remain = report->max_block_num; // max_block_num 為硬碟空間轉換為 block 的數量
     hybrid_used_zone_count = 0UL;
     hybrid_zone = malloc((total_bands) * sizeof(struct HYBRID_ZONE)); // total_bands == total_bytes / BAND_SIZE (256 個 tracks)
 
@@ -714,17 +712,14 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
         hybrid_zone[zoneNum].isJournaling = false;
         hybrid_zone[zoneNum].logical_disk_LBA = zoneNum * 256UL;
     }
-    hybrid_journaling_zone_limit = total_bands * JOURNALING_PERCENTAGE / 100UL; // 總 bands 數量的 10%
+    journaling_zone_limit = total_bands * JOURNALING_ZONE_PERCENTAGE / 100UL; // 總 bands 數量的 10%
 
     // 以下這兩個變數比較重要
-    hybrid_journaling_zone_count = 0UL;                                             // 目前 journaling zone 的數量
-    hybrid_journaling_hotness_bound = (hybrid_journaling_zone_limit / 2UL) * 256UL; // 分離 hot/cold data 的 initial value
-    printf("hybrid_journaling_hotness_bound: %lu\n", hybrid_journaling_hotness_bound);
+    journaling_zone_count = 0UL;                           // 目前 journaling zone 的數量
+    hotness_bound = (journaling_zone_limit / 2UL) * 256UL; // 分離 hot/cold data 的 initial value
+    printf("hotness_bound: %lu\n", hotness_bound);
 
-    // 這個不重要
-    hybrid_hotness_bound = ((total_bands - hybrid_journaling_hotness_bound) / 2UL) * 256UL;
-
-    fprintf(stderr, "Journaling Limit: %lu\n", hybrid_journaling_zone_limit);
+    fprintf(stderr, "Journaling Limit: %lu\n", journaling_zone_limit);
     for (unsigned long zoneNum = 0UL; zoneNum < total_bands; zoneNum++)
     {
         fprintf(stderr, "Hybrid Zone %lu, LBA: %lu\n", zoneNum, hybrid_zone[zoneNum].logical_disk_LBA);
@@ -732,6 +727,9 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
 
     while ((num_traces--) && ((nread = getline(&line, &len, stream)) != -1))
     {
+        setbuf(stdout, NULL);
+        int c;
+        unsigned long fid, remain, remainder, num_bytes, left;
         char *p = line;
         while (*p == ' ')
         {
@@ -745,7 +743,7 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
         /*
             c: operation type
             fid: file id from fs
-            bytes: lba related
+            bytes: sector
             num_bytes: data size
         */
         if ((val = sscanf(p, "%d,%lu,%llu,%lu\n", &c, &fid, &bytes, &num_bytes)) == 4)
@@ -826,12 +824,14 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
                 unsigned long lba_ptr = lba;
                 unsigned long n_ptr = n;
                 unsigned long update_start_ptr = 0;
-                // unsigned long hybrid_journaling_ptr;
                 while (n_ptr > 0UL)
                 {
-                    for (unsigned long check_free_zone = 0UL; check_free_zone < hybrid_used_zone_count; check_free_zone++)
+                    /*
+                        因為 hybrid_used_zone_count 為 0，所以不會跑 for 迴圈的內容，造成 n_ptr 永遠大於 0，所以一直在跑無窮迴圈
+                        更：改成 journaling_zone_limit
+                    */
+                    for (unsigned long check_free_zone = 0UL; check_free_zone < journaling_zone_limit; check_free_zone++)
                     {
-                        /* 因為 hybrid_used_zone_count 為 0，所以不會跑 for 迴圈的內容，造成 n_ptr 永遠大於 0，所以一直在跑無窮迴圈 */
                         /*
                             檢查：
                             1. zone 為 online
@@ -879,33 +879,14 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
 
                             disk->d_op->write(disk, hybrid_zone[check_free_zone].logical_disk_LBA + hybrid_zone[check_free_zone].write_head_pointer, zone_n, fid);
                             hybrid_zone[check_free_zone].write_head_pointer = whp;
-                            hybrid_journaling_block_remain -= zone_n;
                         }
                         if (n_ptr <= 0)
                         {
                             break;
                         }
                     }
-                    /*
-                    int checkpoint_mode;
-                    if(checkpoint_count == 1000UL) {
-                        hybrid_hotness_bound = checkpoint_accumulate/1000UL;
-                        checkpoint_count = 0UL;
-                        checkpoint_accumulate = 0UL;
-                    }
-                    else {
-                        checkpoint_count++;
-                        checkpoint_accumulate += n;
-                    }
 
-                    if(n < hybrid_hotness_bound) {
-                        checkpoint_mode = 0; //CMR
-                    }
-                    else {
-                        checkpoint_mode = 1; //SMR
-                    }
-                    */
-                    if (n_ptr > 0 && hybrid_journaling_zone_count < hybrid_journaling_zone_limit)
+                    if (n_ptr > 0 && journaling_zone_count < journaling_zone_limit)
                     {
                         for (unsigned long check_offline_zone = 0UL; check_offline_zone < total_bands; check_offline_zone++)
                         {
@@ -924,21 +905,22 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
                                     else
                                     {
                                         hybrid_zone[check_offline_zone].blocks[i].isSEALED = false;
-                                        hybrid_journaling_block_remain++;
                                     }
                                 }
-                                hybrid_journaling_zone_count++;
+                                journaling_zone_count++;
                                 break;
                             }
                         }
                     }
-                    else if (n_ptr > 0 && hybrid_journaling_zone_count >= hybrid_journaling_zone_limit)
+                    else if (n_ptr > 0 && journaling_zone_count >= journaling_zone_limit)
                     {
                         // Checkpoint
+                        do_checkpoint(disk);
                     }
                 }
                 // disk->d_op->write(disk, lba, n, fid);
                 free(hybrid_journaling_update_list);
+                hybrid_journaling_update_list = NULL;
                 break;
 
             case 3:
@@ -958,18 +940,21 @@ void hybrid_parsing_csv(struct disk *disk, FILE *stream)
             fprintf(stderr, "ERROR: parsing instructions failed. Unrecongnized format.\n");
             exit(EXIT_FAILURE);
         }
-        if (!(num_traces % percent))
-        {
-            putchar('#');
-            fflush(stdout);
-        }
-        if (!(num_traces % ten_percent))
-        {
-            putchar('\n');
-            fflush(stdout);
-        }
+        // if (!(num_traces % percent))
+        // {
+        //     putchar('#');
+        //     fflush(stdout);
+        // }
+        // if (!(num_traces % ten_percent))
+        // {
+        //     putchar('\n');
+        //     fflush(stdout);
+        // }
     }
     free(line);
+    line = NULL;
+    do_checkpoint(disk);
+    hybrid_data_usage = hybrid_calculate_usage(disk);
 }
 
 /*
@@ -2523,8 +2508,13 @@ int main(int argc, char **argv)
     printf("Total Write Block Size              = %19llu B\n", report->normal.total_write_block_size);
     printf("Total Read Block Size               = %19llu B\n", report->normal.total_read_block_size);
     printf("Total Delete Block Size             = %19llu B\n", report->total_delete_write_block_size);
+    output_disk_info(&disk);
     end_disk(&disk);
     printf("*************************DISK*************************\n\n");
+#ifdef HYBRID
+    printf("\nData Usage Percentage             = %f %%\n", hybrid_data_usage * 100UL);
+#else
     printf("\nData Usage Percentage             = %lu %%\n", data_usage * 100UL);
+#endif
     return 0;
 }
