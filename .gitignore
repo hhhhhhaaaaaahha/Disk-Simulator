@@ -1,2 +1,4 @@
 bin/
 trace/
+output/
+.vscode/
