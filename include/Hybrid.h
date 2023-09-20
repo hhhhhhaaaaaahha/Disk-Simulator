@@ -8,24 +8,16 @@
 #define HYBRID_ZONE_CMR_TRACK_COUNT 170UL
 #define HYBRID_DENSITY_GAIN 1.5
 #define JOURNALING_PREDICT_REQ_NUM 1000UL
-#define JOURNALING_PERCENTAGE 10UL
+#define JOURNALING_ZONE_PERCENTAGE 10UL
 
 /* Journaling */
-unsigned long hybrid_journaling_percent;
-unsigned long hybrid_journaling_zone_limit;
-unsigned long hybrid_journaling_zone_count;
-unsigned long hybrid_journaling_block_remain;
-// unsigned long hybrid_journaling_cmr_count;
-// unsigned long hybrid_journaling_smr_count;
-unsigned long hybrid_journaling_hotness_bound;
+unsigned long hotness_bound;
+unsigned long journaling_zone_count;
+unsigned long journaling_zone_limit;
 
 /* Data Storage */
-unsigned long hybrid_data_usage;
+double hybrid_data_usage;
 unsigned long hybrid_used_zone_count;
-unsigned long hybrid_block_remain;
-unsigned long hybrid_cmr_count;
-unsigned long hybrid_smr_count;
-unsigned long hybrid_hotness_bound;
 
 /* Journaling */
 unsigned long *size_record;
@@ -54,5 +46,6 @@ struct HYBRID_ZONE
 
 struct HYBRID_ZONE *hybrid_zone;
 
+double hybrid_calculate_usage(struct disk *disk);
 int determine_commit_type(unsigned long blocks);
-int do_checkpoint();
+void do_checkpoint(struct disk *disk);
